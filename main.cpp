@@ -3,14 +3,15 @@
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/features2d.hpp> //Thanks to Alessandro
+#include <fstream>
 
 using namespace cv;
 using namespace std;
 
 int main() {
     std::cout << "Hello, World!" << std::endl;
-//    cv::String img1  = "/home/user/PycharmProjects/3d-mapping/data/2020_07_03_PhotoCamera_g401b40179_f001_033.JPG";
-//    cv::String img2 = "/home/user/PycharmProjects/3d-mapping/data/2020_07_03_PhotoCamera_g401b40179_f001_034.JPG";
+//    cv::String img1  = "/home/user/CLionProjects/3d-mapping/cmake-build-debug/origin_1.jpg";
+//    cv::String img2 = "/home/user/CLionProjects/3d-mapping/cmake-build-debug/origin_2.jpg";
 //
 //    cv::String images[2] = {img1, img2};
 //
@@ -43,11 +44,11 @@ int main() {
     // ---------- MATCHES --------------
     double ratio = 0.9;
 
-    cv::Mat image1 = cv::imread("/home/user/PycharmProjects/3d-mapping/data/2020_07_03_PhotoCamera_g401b40179_f001_033.JPG");
-    cv::Mat image2 = cv::imread("/home/user/PycharmProjects/3d-mapping/data/2020_07_03_PhotoCamera_g401b40179_f001_034.JPG");
+    cv::Mat image1 = cv::imread("/home/user/CLionProjects/3d-mapping/data/2019_03_13_Nadir_g401b40071_f020_043.JPG");
+    cv::Mat image2 = cv::imread("/home/user/CLionProjects/3d-mapping/data/2019_03_13_Nadir_g401b40071_f020_044.JPG");
 
-    cv::Ptr<cv::SiftFeatureDetector> detector = cv::SiftFeatureDetector::create();
-    cv::Ptr<cv::SiftDescriptorExtractor> extractor = cv::SiftDescriptorExtractor::create();
+    cv::Ptr<cv::FeatureDetector> detector = cv::ORB::create(10000);
+    cv::Ptr<cv::DescriptorExtractor> extractor = cv::ORB::create(10000);
 
     vector<KeyPoint> keypoints1, keypoints2;
     detector->detect(image1, keypoints1);
@@ -65,12 +66,16 @@ int main() {
     vector< vector<DMatch> > matches12, matches21;
     Ptr<DescriptorMatcher> matcher = DescriptorMatcher::create("BruteForce-Hamming");
     matcher->knnMatch( descriptors1, descriptors2, matches12, 2);
-    //matcher->knnMatch( descriptors2, descriptors1, matches21, 2);
+    matcher->knnMatch( descriptors2, descriptors1, matches21, 2);
+
 
     std::cout << "after matcher" << std::endl;
-    //BFMatcher bfmatcher(NORM_L2, true);
-    //vector<DMatch> matches;
-    //bfmatcher.match(descriptors1, descriptors2, matches);
+    BFMatcher bfmatcher(NORM_L2, true);
+    vector<DMatch> matches;
+    bfmatcher.match(descriptors1, descriptors2, matches);
+
+
+
     double max_dist = 0; double min_dist = 100;
     for( int i = 0; i < descriptors1.rows; i++)
     {
@@ -86,16 +91,17 @@ int main() {
     cout << "Matches2-1:" << matches21.size() << endl;
 
     std::vector<DMatch> good_matches1, good_matches2;
-    for(int i=0; i < matches12.size(); i++)
-    {
-        if(matches12[i][0].distance < ratio * matches12[i][1].distance)
-            good_matches1.push_back(matches12[i][0]);
+    for(auto & i : matches12) {
+        if(i[0].distance < ratio * i[1].distance) {
+            good_matches1.push_back(i[0]);
+//            std::cout<< i[0].distance << " " << i[1].distance << std::endl;
+            std::cout<< i[0].queryIdx << " " << i[1].trainIdx << std::endl;
+        }
     }
 
-    for(int i=0; i < matches21.size(); i++)
-    {
-        if(matches21[i][0].distance < ratio * matches21[i][1].distance)
-            good_matches2.push_back(matches21[i][0]);
+    for(auto & i : matches21) {
+        if(i[0].distance < ratio * i[1].distance)
+            good_matches2.push_back(i[0]);
     }
 
     cout << "Good matches1:" << good_matches1.size() << endl;
@@ -103,13 +109,11 @@ int main() {
 
     // Symmetric Test
     std::vector<DMatch> better_matches;
-    for(int i=0; i<good_matches1.size(); i++)
-    {
-        for(int j=0; j<good_matches2.size(); j++)
-        {
-            if(good_matches1[i].queryIdx == good_matches2[j].trainIdx && good_matches2[j].queryIdx == good_matches1[i].trainIdx)
-            {
-                better_matches.push_back(DMatch(good_matches1[i].queryIdx, good_matches1[i].trainIdx, good_matches1[i].distance));
+    for(auto & i : good_matches1) {
+        for(auto & j : good_matches2) {
+            if(i.queryIdx == j.trainIdx && j.queryIdx == i.trainIdx) {
+                better_matches.push_back(DMatch(i.queryIdx, i.trainIdx, i.distance));
+
                 break;
             }
         }
@@ -120,7 +124,41 @@ int main() {
     // show it on an image
     Mat output;
     drawMatches(image1, keypoints1, image2, keypoints2, better_matches, output);
-    imshow("Matches result",output);
+//    for(int i=0; i< better_matches.size(); i++) {
+//        std::cout << better_matches[i] << std::endl;
+//    }
+    //imshow("Matches result",output);
+   // cv::imwrite("matches_drone.jpg", output);
+
+    std::vector< Point2f > points_list_1;
+    std::vector< Point2f > points_list_2;
+
+   for (int i=0; i<better_matches.size(); i++) {
+       // Get the matching keypoints for each of the images
+       int img1_index = better_matches[i].queryIdx;
+       int img2_index = better_matches[i].trainIdx;
+
+       // x - columns
+       // y - rows
+       // get the coordinates
+       points_list_1.push_back(keypoints1[img1_index].pt);
+       points_list_2.push_back(keypoints2[img2_index].pt);
+
+   }
+
+    std::cout<< points_list_1.size() << " " << points_list_2.size() << std::endl;
+
+    ofstream file1, file2;
+    file1.open ("/home/user/CLionProjects/3d-mapping/coordinates/file1.txt");
+    file2.open ("/home/user/CLionProjects/3d-mapping/coordinates/file2.txt");
+    for(int i=0; i<points_list_1.size(); i++) {
+        file1 << points_list_1[i].x << " " << points_list_1[i].y << "\n";
+        file2 << points_list_2[i].x << " " << points_list_2[i].y << "\n";
+
+    }
+    file1.close();
+    file2.close();
+
     waitKey(0);
 
 
